@@ -6,7 +6,8 @@ The maps are created by sorting every pixel by luminance and then normalizing th
 
 
 Example of the threshold maps being applied in a [Unity post process shader](https://www.artstation.com/artwork/dyA5g3)
-![Unity](images/dithering_unity.png)
+![Unity](images/SoulOfCinder_Final.JPG)
+![Unity_Shaderballs](images/dithering_unity.png)
 
 To get an even spread the luminance should be mixed with existing dither pattern since images with big uniform areas result in clustering.
 The availabe patterns are Bayer Matrix 2x2 - 8x8, Interleaved Gradient Noise and Blue Noise. 
