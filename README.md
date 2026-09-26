@@ -1,9 +1,9 @@
 # py-image-to-threshold-map
 Converts input bitmaps to ordered threshold maps for dithering.
 
-![Example](images/gengar.png) ![Example](images/gengar_out.png)
+![Example](images/gengar_dbg_inputScaled.png) ![Example](images/gengar_dbg_final.png) ![Example](images/gengar_out.png)
 
-![Example](images/Swirls.jpg) ![Example](images/Swirls_out.png)
+![Example](images/Swirls_dbg_inputScaled.png) ![Example](images/Swirls_out.png)
 
 ![Example](images/geoTest.png) ![Example](images/geoTest_out.png)
 
