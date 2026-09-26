@@ -23,9 +23,6 @@ __version__ = "1.0.0"
 
 
 
-colorMap = cv2.COLORMAP_JET
-#colorMap = cv2.COLORMAP_HOT
-#colorMap = cv2.COLORMAP_OCEAN
 
 
 class DitherPattern(Enum):
@@ -84,8 +81,14 @@ def create_interleaved_gradient_noise(n):
 
 
 def void_and_cluster(size, sigma = 1.9, seed_points_per_dim = -1):
+    '''
+    copied from here: https://bartwronski.com/2022/08/31/progressive-image-stippling-and-greedy-blue-noise-importance-sampling/
+
     # the number of seed points = seed_points_per_dim * seed_points_per_dim.
     # by default 1 in 8 points per axis will be a seed point
+
+    '''
+    
     if seed_points_per_dim < 0:
         seed_points_per_dim = max(size // 8, 1)
 
@@ -160,28 +163,27 @@ def order_pixels(input_image):
     h, w = input_image.shape
     flat = input_image.flatten()
     num_pixels = flat.size
+
+    # indices of sorted pixels
     sorted_indices = np.argsort(flat)
+
     # running argsort again as a reverse lookup
     ranks = np.argsort(sorted_indices)
     normalized_img = ranks.astype(np.float32) / num_pixels
+
     return normalized_img.reshape(h, w)
 
 
 
-
-
-
 def order_pixels_tiled(input_image, tile_size = 16):
-    h, w = input_image.shape[:2]
-    
-    gray = input_image.copy()
 
+    h, w = input_image.shape[:2]
     output_img = np.zeros((h, w), dtype=np.float32)
 
     for y in range(0, h, tile_size):
         for x in range(0, w, tile_size):
             # get the window/tile
-            tile = gray[y:y+tile_size, x:x+tile_size]
+            tile = input_image[y:y+tile_size, x:x+tile_size]
             
             flat_tile = tile.flatten()
             num_pixels = flat_tile.size
@@ -206,37 +208,98 @@ def order_pixels_tiled(input_image, tile_size = 16):
 
 
 
-def DEBUG_indexes(indices,shape):
-    # create a remapped image of the indices
-    factor = shape[0] * shape[1]
-    img = indices.reshape(shape)
-    img / factor;
-    img = cv2.resize(img,dsize=None,fx=8,fy=8,interpolation=cv2.INTER_NEAREST)
-    return cv2.applyColorMap(img.astype(np.uint8), colorMap)
-
-def DEBUG_image(img):
-    img = upscale(img,8)
-    return cv2.applyColorMap(img.astype(np.uint8), colorMap)
-
-def DEBUG_histogram(img):
-    hist = cv2.calcHist([img], [0], None, [256], [0, 256])
-    plt.figure(figsize=(8, 5))
-    plt.title("Grayscale Image Histogram")
-    plt.xlabel("Pixel Value (Intensity)")
-    plt.ylabel("Number of Pixels")
-    plt.plot(hist)
-    # plt.bar(bins[:-1], hist, width=1, color='gray') 
-    plt.xlim([0, 256])
-    plt.grid(True, linestyle='--', alpha=0.6)
-    plt.show()
-
-
+colorMap = cv2.COLORMAP_JET
+#colorMap = cv2.COLORMAP_HOT
+#colorMap = cv2.COLORMAP_OCEAN
 
 
 
 def round_to_po2(x):
     l = math.log2(x)
     return 2 ** round(l)
+
+
+
+
+
+
+
+
+
+
+
+def create_noise(shape_reference, noiseType=DitherPattern.BAYER4X4) :
+    ''' 
+
+    creates the noise pattern based on the input images size
+
+
+    '''
+
+    # blue noise and ign create a square image, so we provide the longer of the two axis
+    longer_axis = shape_reference[0] if shape_reference[0] > shape_reference[1] else shape_reference[1]
+
+
+    if noiseType in {DitherPattern.BAYER2X2, DitherPattern.BAYER4X4, DitherPattern.BAYER8X8}:
+
+        bayer = None
+
+        if noiseType == DitherPattern.BAYER2X2:
+            bayer = create_bayer_matrix(2)
+        elif noiseType == DitherPattern.BAYER4X4:
+            bayer = create_bayer_matrix(4)
+        else : 
+            bayer = create_bayer_matrix(8)
+        bayer = np.float32(bayer)/255.0
+
+        print(f"generated bayer pattern: {bayer.shape}")
+
+        factorY = shape_reference[0] / bayer.shape[0]
+        factorX = shape_reference[1] / bayer.shape[1]
+
+        factor = (int(factorY),int(factorX))
+        print(f"tiling pattern x*{factor[0]} y*{factor[1]}")
+        bayer = np.tile(bayer,factor)
+        print(f"tiled bayer pattern: {bayer.shape}")
+
+        return bayer
+
+    elif noiseType == DitherPattern.BLUE_NOISE:
+        noise =  void_and_cluster(longer_axis)
+        return noise[0:shape_reference[0], 0:shape_reference[1]]
+
+    elif noiseType == DitherPattern.INTERLEAVED_GRADIENT_NOISE:
+        noise = create_interleaved_gradient_noise(longer_axis)
+        return noise[0:shape_reference[0], 0:shape_reference[1]]
+
+
+    else:
+        print(f"noiseType {noiseType} not recognized")
+        return None
+
+
+
+
+
+
+def write_debug_outputs(original, final, noise, output_noEXt):
+
+
+    shape = (final.shape[1], final.shape[0]) 
+
+    final_falseColor = cv2.applyColorMap(final.astype(np.uint8), colorMap)
+    final_falseColor = cv2.resize(final_falseColor, shape,interpolation=cv2.INTER_NEAREST)
+    cv2.imwrite(output_noEXt + "_dbg_final.png", final_falseColor)
+
+    # og image rescaled for comparison
+    og_rescaled = cv2.resize(original, shape, interpolation=cv2.INTER_NEAREST)
+    cv2.imwrite(output_noEXt + "_dbg_inputScaled.png", og_rescaled)
+
+    noise_uint8 = cv2.normalize(noise, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+    #noise_falseColor = cv2.applyColorMap(noise_uint8, colorMap)
+    #noise_falseColor = cv2.resize(noise_falseColor, shape, interpolation=cv2.INTER_NEAREST)
+    #cv2.imwrite(output_noEXt + "_dbg_noise.png", noise_falseColor)
+    cv2.imwrite(output_noEXt + "_dbg_noise.png", noise_uint8)
 
 
 
@@ -261,18 +324,18 @@ def convert_image(file, output=None, resize=None, noiseType=DitherPattern.BAYER4
 
         tilesize (int or None) :            if not None the image will be segmented into tiles before sorting
 
-        finalUpscale (int) :                final scale (default 1)
+        finalUpscale (int) :                final scale if it doesn't need to be pixel perfect - for previews or documentation (default 1)
 
         gamma (float)       :               input gamma (default 2.2)
 
-        repeats (int,int)   :               optional tiling of the image
+        repeats (int,int)   :               optional tiling of the image before saving
 
-        debug (bool)      :                 show intermedieate images
+        debug (bool)        :               write debug images
 
 
     Returns:
 
-        True on success
+        bool :                              True on success
 
 
     """
@@ -282,8 +345,6 @@ def convert_image(file, output=None, resize=None, noiseType=DitherPattern.BAYER4
     if not resize is None:
         img = cv2.resize(img, resize)
 
-    img = np.float32(img)/255.0
-    img = np.power(img,gamma)
 
     # round to closest power of 2
     new_w  = round_to_po2(img.shape[1])
@@ -293,95 +354,62 @@ def convert_image(file, output=None, resize=None, noiseType=DitherPattern.BAYER4
 
 
     img = cv2.resize(img, (new_w, new_h))
+
+    original = np.copy(img)
+
+
+
+    img = np.float32(img)/255.0
+    img = np.power(img,gamma)
+
     print(f"new image shape: {img.shape}")
 
-    #smallerAxis = min(new_w,new_h)
-    #ssHorizontal = new_w > new_h
-    #print("Smaller Axis: " + str(smallerAxis))
-
-    pattern = None
-
-
-
-
-    if noiseType in {DitherPattern.BAYER2X2, DitherPattern.BAYER4X4, DitherPattern.BAYER8X8}:
-
-        bayer = None
-
-        if noiseType == DitherPattern.BAYER2X2:
-            bayer = create_bayer_matrix(2)
-        elif noiseType == DitherPattern.BAYER4X4:
-            bayer = create_bayer_matrix(4)
-        else : 
-            bayer = create_bayer_matrix(8)
-        bayer = np.float32(bayer)/255.0
-
-        print(f"generated bayer pattern: {bayer.shape}")
-
-        factorY = new_shape[0] / bayer.shape[0]
-        factorX = new_shape[1] / bayer.shape[1]
-
-        factor = (int(factorY),int(factorX))
-        print(f"tiling pattern x*{factor[0]} y*{factor[1]}")
-        bayer = np.tile(bayer,factor)
-        print(f"tiled bayer pattern: {bayer.shape}")
-
-        pattern = bayer
-
-    elif noiseType == DitherPattern.BLUE_NOISE:
-        pattern = void_and_cluster(new_shape[0])
-
-    elif noiseType == DitherPattern.INTERLEAVED_GRADIENT_NOISE:
-            pattern = create_interleaved_gradient_noise(new_shape[0])
-
-    else:
-        print(f"noiseType {noiseType} not recognized")
-        return False
-
-
+    pattern = create_noise(new_shape, noiseType)
 
     print(f"pattern shape: {pattern.shape}")
     #composite = cv2.addWeighted(pattern, noiseAmount, img, 1.0-noiseAmount, 0)
     composite = img * (1.0-noiseAmount) + pattern * noiseAmount
 
-
-    # do the thing
+    # run the sorting
     # either tiled or over the whole image
+    final = None
     if tileSize != None:
-        img = order_pixels_tiled(composite, tileSize)
+        final = order_pixels_tiled(composite, tileSize)
     else:
-        img = order_pixels(composite)
-
-    img = img.reshape(new_shape)
-
-    img = np.uint8(img * 255.0)
-
-    #DEBUG_histogram(img)
-    debug_pattern   = DEBUG_image(pattern*255)
-    debug_composite = DEBUG_image(composite*255)
-    debugFinal      = DEBUG_image(img)
+        final = order_pixels(composite)
 
 
-    img = np.tile(img,repeats)
+    # final format
+    #img = img.reshape(new_shape)
+    final = np.uint8(final * 255.0)
+
+    # tile image
+    final = np.tile(final,repeats)
 
 
     if finalUpscale != 1:
-        img = upscale(img, finalUpscale)
+        final = upscale(final, finalUpscale)
 
+    # set output to input file + _out if not supplied 
+    # and also get the path only
+    output_noEXt = None
     if not output:
-        (path, _) = os.path.splitext(file)
-        output = path + "_out.png"
+        (output_noEXt, _) = os.path.splitext(file)
+        output = output_noEXt + "_out.png"
+    else :
+        (output_noEXt, _) = os.path.splitext(output)
 
-    print(f"writing file to {output}\n")
-    cv2.imwrite(output,img)
+
 
     if debug:
-        cv2.imshow("input brightness",debug_original)
-        #cv2.imshow("pattern",debug_pattern)
-        cv2.imshow("composite",debug_composite)
-        cv2.imshow("final",debugFinal)
-        cv2.imshow("indices",debug_indices)
-        cv2.waitKey()
+        write_debug_outputs(upscale(original,finalUpscale),final,upscale(pattern,finalUpscale),output_noEXt)
+
+
+    print(f"writing file to {output}\n")
+    cv2.imwrite(output,final)
 
     return True
+
+
+
 
